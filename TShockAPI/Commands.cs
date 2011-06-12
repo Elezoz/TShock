@@ -1093,7 +1093,7 @@ namespace TShockAPI
 
         public static void SetHome(CommandArgs args)
         {
-            HomeManager.Homes.Add(Tools.GetPlayerIP(args.PlayerID).Split(':')[0], new Vector2((int)Main.player[args.PlayerID].position.X, (int)Main.player[args.PlayerID].position.y));
+            HomeManager.Homes.Add(Tools.GetPlayerIP(args.PlayerID).Split(':')[0], new Vector2((int)Main.player[args.PlayerID].position.X, (int)Main.player[args.PlayerID].position.Y));
             Tools.SendMessage(args.PlayerID, "Home is set at your position with a 10 block radius");
         }
 
