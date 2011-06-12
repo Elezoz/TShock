@@ -1,12 +1,33 @@
-﻿using System;
-using System.IO;
-using Terraria;
+﻿/*   
+TShock, a server mod for Terraria
+Copyright (C) 2011 The TShock Team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using Microsoft.Xna.Framework;
+using Terraria;
 
 namespace TShockAPI
 {
-    class Tools
+    internal class Tools
     {
+        private static List<Group> groups = new List<Group>();
+
         /// <summary>
         /// Provides the real IP address from a RemoteEndPoint string that contains a port and an IP
         /// </summary>
@@ -18,27 +39,34 @@ namespace TShockAPI
         }
 
         /// <summary>
+        /// Gets the IP from a player index
+        /// </summary>
+        /// <param name="plr">Player Index</param>
+        /// <returns>IP</returns>
+        public static string GetPlayerIP(int plr)
+        {
+            return GetRealIP(Netplay.serverSock[plr].tcpClient.Client.RemoteEndPoint.ToString());
+        }
+
+        /// <summary>
         /// Used for some places where a list of players might be used.
         /// </summary>
         /// <returns>String of players seperated by commas.</returns>
         public static string GetPlayers()
         {
-            string str = "";
+            var sb = new StringBuilder();
             for (int i = 0; i < Main.maxPlayers; i++)
             {
                 if (Main.player[i].active)
                 {
-                    if (str == "")
+                    if (sb.Length != 0)
                     {
-                        str = str + Main.player[i].name;
+                        sb.Append(", ");
                     }
-                    else
-                    {
-                        str = str + ", " + Main.player[i].name;
-                    }
+                    sb.Append(Main.player[i].name);
                 }
             }
-            return str;
+            return sb.ToString();
         }
 
         /// <summary>
@@ -50,7 +78,7 @@ namespace TShockAPI
         /// <param name="min">Minimum bounds of the clamp</param>
         /// <returns></returns>
         public static T Clamp<T>(T value, T max, T min)
-    where T : System.IComparable<T>
+            where T : IComparable<T>
         {
             T result = value;
             if (value.CompareTo(max) > 0)
@@ -70,7 +98,27 @@ namespace TShockAPI
             {
                 SendMessage(i, msg);
             }
-            Log.Info("Broadcast: " + msg);
+            Log.Info(string.Format("Broadcast: {0}", msg));
+        }
+
+        public static void Broadcast(string msg, float red, float green, float blue)
+        {
+            for (int i = 0; i < Main.player.Length; i++)
+            {
+                SendMessage(i, msg, red, green, blue);
+            }
+            Log.Info(string.Format("Broadcast: {0}", msg));
+        }
+
+        /// <summary>
+        /// Sends a message out to a single player
+        /// </summary>
+        /// <param name="ply">int socket thingy for the player from the server socket</param>
+        /// <param name="msg">String message</param>
+      
+        public static void SendMessage(int ply, string msg, float red, float green, float blue)
+        {
+            NetMessage.SendData(0x19, ply, -1, msg, 255, red, green, blue);
         }
 
         /// <summary>
@@ -79,10 +127,28 @@ namespace TShockAPI
         /// <param name="ply">int socket thingy for the player from the server socket</param>
         /// <param name="msg">String message</param>
         /// <param name="color">Float containing red, blue, and green color values</param>
-        public static void SendMessage(int ply, string msg, float[] color)
+        public static void SendMessage(int ply, string msg, Color color)
         {
-            NetMessage.SendData(0x19, ply, -1, msg, 255, color[0], color[1], color[2]);
-            Log.Info("Said: " + msg + " - To: " + Tools.FindPlayer(ply));
+            NetMessage.SendData(0x19, ply, -1, msg, 255, color.R, color.G, color.B);
+        }
+
+        /// <summary>
+        /// Sends message to all users with 'logs' permission.
+        /// </summary>
+        /// <param name="log"></param>
+        /// <param name="color"></param>
+        public static void SendLogs(string log, Color color)
+        {
+            Log.Info(log);
+            for (int i = 0; i < Main.maxPlayers; i++)
+            {
+                if (TShock.players[i] == null)
+                    continue;
+                if (!TShock.players[i].group.HasPermission("logs"))
+                    continue;
+
+                SendMessage(i, log, color);
+            }
         }
 
         /// <summary>
@@ -93,7 +159,6 @@ namespace TShockAPI
         public static void SendMessage(int ply, string message)
         {
             NetMessage.SendData(0x19, ply, -1, message, 255, 0f, 255f, 0f);
-            Log.Info("Said: " + message + " - To: " + Tools.FindPlayer(ply));
         }
 
         /// <summary>
@@ -120,20 +185,14 @@ namespace TShockAPI
         /// <returns>int player</returns>
         public static int FindPlayer(string ply)
         {
-            /*int pl = -1;
-            for (int i = 0; i < Main.player.Length; i++)
-            {
-                if ((ply.ToLower()) == Main.player[i].name.ToLower())
-                {
-                    pl = i;
-                    break;
-                }
-            }
-            return pl;*/
             List<int> found = new List<int>();
             for (int i = 0; i < Main.player.Length; i++)
+            {
+                if (Main.player[i].name.ToLower().Equals(ply.ToLower()))
+                    return i;
                 if (Main.player[i].name.ToLower().Contains(ply.ToLower()))
                     found.Add(i);
+            }
             if (found.Count == 1)
                 return found[0];
             else if (found.Count > 1)
@@ -189,41 +248,15 @@ namespace TShockAPI
         }
 
         /// <summary>
-        /// Finds a player, reads admins.txt, and determines if their IP address is on that list.
+        /// Kicks a player from the server without checking for immunetokick permission.
         /// </summary>
         /// <param name="ply">int player</param>
-        /// <returns>true/false</returns>
-        public static bool IsAdmin(int ply)
+        /// <param name="reason">string reason</param>
+        public static void ForceKick(int ply, string reason)
         {
-            string remoteEndPoint = Convert.ToString((Netplay.serverSock[ply].tcpClient.Client.RemoteEndPoint));
-            string[] remoteEndPointIP = remoteEndPoint.Split(':');
-            TextReader tr = new StreamReader(FileTools.SaveDir + "admins.txt");
-            string adminlist = tr.ReadToEnd();
-            tr.Close();
-            if (adminlist.Contains(remoteEndPointIP[0]))
-            {
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Finds a player based on their name, reads admins.txt, and determines if thier IP address is on that list.
-        /// </summary>
-        /// <param name="ply"></param>
-        /// <returns></returns>
-        public static bool IsAdmin(string ply)
-        {
-            string remoteEndPoint = Convert.ToString((Netplay.serverSock[Tools.FindPlayer(ply)].tcpClient.Client.RemoteEndPoint));
-            string[] remoteEndPointIP = remoteEndPoint.Split(':');
-            TextReader tr = new StreamReader(FileTools.SaveDir + "admins.txt");
-            string adminlist = tr.ReadToEnd();
-            tr.Close();
-            if (adminlist.Contains(remoteEndPointIP[0]))
-            {
-                return true;
-            }
-            return false;
+            string ip = GetPlayerIP(ply);
+            NetMessage.SendData(0x2, ply, -1, reason, 0x0, 0f, 0f, 0f);
+            Log.Info(string.Format("{0} was force kicked for : {1}", ip, reason));
         }
 
         /// <summary>
@@ -231,50 +264,83 @@ namespace TShockAPI
         /// </summary>
         /// <param name="ply">int player</param>
         /// <param name="reason">string reason</param>
-        public static void Kick(int ply, string reason)
+        public static bool Kick(int ply, string reason, string adminUserName = "")
         {
-            NetMessage.SendData(0x2, ply, -1, reason, 0x0, 0f, 0f, 0f);
-            Log.Info("Kicked " + Tools.FindPlayer(ply) + " for : " + reason);
+            if (!Netplay.serverSock[ply].active || Netplay.serverSock[ply].kill)
+                return true;
+            if (!TShock.players[ply].group.HasPermission("immunetokick"))
+            {
+                string playerName = Main.player[ply].name;
+                NetMessage.SendData(0x2, ply, -1, string.Format("Kicked: {0}", reason), 0x0, 0f, 0f, 0f);
+                Log.Info(string.Format("Kicked {0} for : {1}", playerName, reason));
+                if (adminUserName.Length == 0)
+                    Broadcast(string.Format("{0} was kicked for {1}", playerName, reason.ToLower()));
+                else
+                    Tools.Broadcast(string.Format("{0} kicked {1} for {2}", adminUserName, playerName, reason.ToLower()));
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
-        /// Adds someone to cheaters.txt
+        /// Bans and kicks a player from the server.
         /// </summary>
         /// <param name="ply">int player</param>
-        public static void HandleCheater(int ply)
+        /// <param name="reason">string reason</param>
+        public static bool Ban(int plr, string reason, string adminUserName = "")
         {
-            if (!TShock.players[ply].IsAdmin())
+            if (!Netplay.serverSock[plr].active || Netplay.serverSock[plr].kill)
+                return true;
+            if (!TShock.players[plr].group.HasPermission("immunetoban"))
             {
-                string cheater = Tools.FindPlayer(ply);
-                string ip = Tools.GetRealIP(Convert.ToString(Netplay.serverSock[ply].tcpClient.Client.RemoteEndPoint));
-
-                FileTools.WriteCheater(ply);
-                if (!ConfigurationManager.kickCheater) { return; }
-                Netplay.serverSock[ply].kill = true;
-                Netplay.serverSock[ply].Reset();
-                NetMessage.syncPlayers();
-                Tools.Broadcast(cheater + " was " + (ConfigurationManager.banCheater ? "banned " : "kicked ") + "for cheating.");
+                string ip = GetPlayerIP(plr);
+                string playerName = Main.player[plr].name;
+                TShock.Bans.AddBan(ip, playerName, reason);
+                NetMessage.SendData(0x2, plr, -1, string.Format("Banned: {0}", reason), 0x0, 0f, 0f, 0f);
+                Log.Info(string.Format("Banned {0} for : {1}", playerName, reason));
+                if (adminUserName.Length == 0)
+                    Broadcast(string.Format("{0} was banned for {1}", playerName, reason.ToLower()));
+                else
+                    Tools.Broadcast(string.Format("{0} banned {1} for {2}", adminUserName, playerName, reason.ToLower()));
+                return true;
             }
+            return false;
         }
 
-        /// <summary>
-        /// Adds someone to griefers.txt
-        /// </summary>
-        /// <param name="ply">int player</param>
-        public static void HandleGriefer(int ply)
+        public static bool HandleCheater(int ply, string reason)
         {
-            if (!TShock.players[ply].IsAdmin())
-            {
-                string cheater = Tools.FindPlayer(ply);
-                string ip = Tools.GetRealIP(Convert.ToString(Netplay.serverSock[ply].tcpClient.Client.RemoteEndPoint));
+            return HandleBadPlayer(ply, "ignorecheatdetection", ConfigurationManager.banCheater, ConfigurationManager.kickCheater, reason);
+        }
 
-                FileTools.WriteGrief(ply);
-                if (!ConfigurationManager.kickGriefer) { return; }
-                Netplay.serverSock[ply].kill = true;
-                Netplay.serverSock[ply].Reset();
-                NetMessage.syncPlayers();
-                Tools.Broadcast(cheater + " was " + (ConfigurationManager.banGriefer ? "banned " : "kicked ") + "for griefing.");
+        public static bool HandleGriefer(int ply, string reason)
+        {
+            return HandleBadPlayer(ply, "ignoregriefdetection", ConfigurationManager.banGriefer, ConfigurationManager.kickGriefer, reason);
+        }
+
+        public static bool HandleTntUser(int ply, string reason)
+        {
+            return HandleBadPlayer(ply, "ignoregriefdetection", ConfigurationManager.banTnt, ConfigurationManager.kickTnt, reason);
+        }
+
+        public static bool HandleExplosivesUser(int ply, string reason)
+        {
+            return HandleBadPlayer(ply, "ignoregriefdetection", ConfigurationManager.banBoom, ConfigurationManager.kickBoom, reason);
+        }
+
+        private static bool HandleBadPlayer(int ply, string overridePermission, bool ban, bool kick, string reason)
+        {
+            if (!TShock.players[ply].group.HasPermission(overridePermission))
+            {
+                if (ban)
+                {
+                    return Ban(ply, reason);
+                }
+                else if (kick)
+                {
+                    return Kick(ply, reason);
+                }
             }
+            return false;
         }
 
         /// <summary>
@@ -288,7 +354,7 @@ namespace TShockAPI
             while ((foo = tr.ReadLine()) != null)
             {
                 foo = foo.Replace("%map%", Main.worldName);
-                foo = foo.Replace("%players%", Tools.GetPlayers());
+                foo = foo.Replace("%players%", GetPlayers());
                 if (foo.Substring(0, 1) == "%" && foo.Substring(12, 1) == "%") //Look for a beginning color code.
                 {
                     string possibleColor = foo.Substring(0, 13);
@@ -300,10 +366,7 @@ namespace TShockAPI
                     {
                         try
                         {
-                            pC[0] = Tools.Clamp(Convert.ToInt32(pCc[0]), 255, 0);
-                            pC[1] = Tools.Clamp(Convert.ToInt32(pCc[1]), 255, 0);
-                            pC[2] = Tools.Clamp(Convert.ToInt32(pCc[2]), 255, 0);
-                            Tools.SendMessage(ply, foo, pC);
+                            SendMessage(ply, foo, Clamp(Convert.ToInt32(pCc[0]), 255, 0), Clamp(Convert.ToInt32(pCc[1]), 255, 0), Clamp(Convert.ToInt32(pCc[2]), 255, 0));
                             continue;
                         }
                         catch (Exception e)
@@ -312,11 +375,134 @@ namespace TShockAPI
                         }
                     }
                 }
-                Tools.SendMessage(ply, foo);
+                SendMessage(ply, foo);
             }
             tr.Close();
         }
 
-        public Tools() { }
+        public static void LoadGroups()
+        {
+            groups = new List<Group>();
+            groups.Add(new SuperAdminGroup("superadmin"));
+
+            StreamReader sr = new StreamReader(FileTools.SaveDir + "groups.txt");
+            string data = sr.ReadToEnd();
+            data = data.Replace("\r", "");
+            string[] lines = data.Split('\n');
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].StartsWith("#"))
+                {
+                    continue;
+                }
+                string[] args = lines[i].Split(' ');
+                if (args.Length < 2)
+                {
+                    continue;
+                }
+                string name = args[0];
+                string parent = args[1];
+                Group group = null;
+                if (parent.Equals("null"))
+                {
+                    group = new Group(name);
+                }
+                else
+                {
+                    for (int j = 0; j < groups.Count; j++)
+                    {
+                        if (groups[j].GetName().Equals(parent))
+                        {
+                            group = new Group(name, groups[j]);
+                            break;
+                        }
+                    }
+                }
+                if (group == null)
+                {
+                    throw new Exception("Something in the groups.txt is fucked up");
+                }
+                else
+                {
+                    for (int j = 2; j < args.Length; j++)
+                    {
+                        string permission = args[j];
+                        if (permission.StartsWith("!"))
+                        {
+                            group.NegatePermission(args[j].Replace("!", ""));
+                        }
+                        else
+                        {
+                            group.AddPermission(args[j]);
+                        }
+                    }
+                }
+                groups.Add(group);
+            }
+            sr.Close();
+        }
+
+        /// <summary>
+        /// Returns a Group from the name of the group
+        /// </summary>
+        /// <param name="ply">string groupName</param>
+        public static Group GetGroup(string groupName)
+        {
+            //first attempt on cached groups
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (groups[i].GetName().Equals(groupName))
+                {
+                    return groups[i];
+                }
+            }
+            //shit, it didnt work, reload and try again
+            LoadGroups();
+
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (groups[i].GetName().Equals(groupName))
+                {
+                    return groups[i];
+                }
+            }
+
+            //sigh :(, ok, you fucked up the config files, congrats.
+            return null;
+        }
+
+        /// <summary>
+        /// Returns a Group for a ip from users.txt
+        /// </summary>
+        /// <param name="ply">string ip</param>
+        public static Group GetGroupForIP(string ip)
+        {
+            ip = GetRealIP(ip);
+
+            StreamReader sr = new StreamReader(FileTools.SaveDir + "users.txt");
+            string data = sr.ReadToEnd();
+            data = data.Replace("\r", "");
+            string[] lines = data.Split('\n');
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string[] args = lines[i].Split(' ');
+                if (args.Length < 2)
+                {
+                    continue;
+                }
+                if (lines[i].StartsWith("#"))
+                {
+                    continue;
+                }
+                if (args[0].Equals(ip))
+                {
+                    return GetGroup(args[1]);
+                }
+            }
+            sr.Close();
+            return GetGroup("default");
+        }
     }
 }

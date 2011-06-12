@@ -1,9 +1,30 @@
-﻿using System;
+﻿/*   
+TShock, a server mod for Terraria
+Copyright (C) 2011 The TShock Team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.IO;
 using System.Text;
-using Terraria;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Net;
+using System.Threading;
+using Microsoft.Xna.Framework;
+using Terraria;
 
 namespace TShockAPI
 {
@@ -11,142 +32,429 @@ namespace TShockAPI
     {
         public delegate void CommandDelegate(CommandArgs args);
 
+        public static List<Command> commands = new List<Command>();
+
         public struct CommandArgs
         {
             public string Message;
             public int PlayerX;
             public int PlayerY;
             public int PlayerID;
+            /// <summary>
+            /// Parameters passed to the arguement. Does not include the command name. 
+            /// IE '/kick "jerk face"' will only have 1 argument
+            /// </summary>
+            public List<string> Parameters;
 
-            public CommandArgs(string message, int x, int y, int id)
+            public CommandArgs(string message, int x, int y, int id, List<string> args)
             {
-                Message = message; PlayerX = x; PlayerY = y; PlayerID = id;
+                Message = message;
+                PlayerX = x;
+                PlayerY = y;
+                PlayerID = id;
+                Parameters = args;
             }
+        }
+
+        public class Command
+        {
+            private string name;
+            private string permission;
+            private CommandDelegate command;
+
+            public Command(string cmdName, string permissionNeeded, CommandDelegate cmd)
+            {
+                name = cmdName;
+                permission = permissionNeeded;
+                command = cmd;
+            }
+
+            public bool Run(string msg, TSPlayer ply, List<string> parms)
+            {
+                if (!ply.group.HasPermission(permission))
+                {
+                    return false;
+                }
+
+                CommandArgs args = new CommandArgs();
+                args.Message = msg;
+                args.PlayerX = (int)ply.GetPlayer().position.X;
+                args.PlayerY = (int)ply.GetPlayer().position.Y;
+                args.PlayerID = ply.GetPlayerID();
+                args.Parameters = parms;
+
+                command(args);
+                return true;
+            }
+
+            public string Name()
+            {
+                return name;
+            }
+
+            public bool CanRun(TSPlayer ply)
+            {
+                if (!ply.group.HasPermission(permission))
+                {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Parses a string of parameters into a list. Handles quotes.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <returns></returns>
+        public static List<String> ParseParameters(string str)
+        {
+            var ret = new List<string>();
+            var sb = new StringBuilder();
+            bool instr = false;
+            for (int i = 0; i < str.Length; i++)
+            {
+                char c = str[i];
+
+                if (instr)
+                {
+                    if (c == '\\')
+                    {
+                        if (i + 1 >= str.Length)
+                            break;
+                        c = GetEscape(str[++i]);
+                    }
+                    else if (c == '"')
+                    {
+                        ret.Add(sb.ToString());
+                        sb.Clear();
+                        instr = false;
+                        continue;
+                    }
+                    sb.Append(c);
+                }
+                else
+                {
+                    if (IsWhiteSpace(c))
+                    {
+                        if (sb.Length > 0)
+                        {
+                            ret.Add(sb.ToString());
+                            sb.Clear();
+                        }
+                    }
+                    else if (c == '"')
+                    {
+                        if (sb.Length > 0)
+                        {
+                            ret.Add(sb.ToString());
+                            sb.Clear();
+                        }
+                        instr = true;
+                    }
+                    else
+                    {
+                        sb.Append(c);
+                    }
+                }
+            }
+            if (sb.Length > 0)
+                ret.Add(sb.ToString());
+
+            return ret;
+        }
+
+        static char GetEscape(char c)
+        {
+            switch (c)
+            {
+                case '\\':
+                    return '\\';
+                case '"':
+                    return '"';
+                case 't':
+                    return '\t';
+                default:
+                    return c;
+            }
+        }
+
+        static bool IsWhiteSpace(char c)
+        {
+            return c == ' ' || c == '\t' || c == '\n';
         }
 
         public static void InitCommands()
         {
-            TShock.admincommandList.Add("kick", new CommandDelegate(Kick));
-            TShock.admincommandList.Add("ban", new CommandDelegate(Ban));
-            TShock.admincommandList.Add("off", new CommandDelegate(Off));
-            TShock.admincommandList.Add("reload", new CommandDelegate(Reload));
-            TShock.admincommandList.Add("dropmeteor", new CommandDelegate(DropMeteor));
-            TShock.admincommandList.Add("star", new CommandDelegate(Star));
-            TShock.admincommandList.Add("bloodmoon", new CommandDelegate(Bloodmoon));
-            TShock.admincommandList.Add("eater", new CommandDelegate(Eater));
-            TShock.admincommandList.Add("eye", new CommandDelegate(Eye));
-            TShock.admincommandList.Add("skeletron", new CommandDelegate(Skeletron));
-            TShock.admincommandList.Add("hardcore", new CommandDelegate(Hardcore));
-            TShock.admincommandList.Add("invade", new CommandDelegate(Invade));
-            TShock.admincommandList.Add("password", new CommandDelegate(Password));
-            TShock.admincommandList.Add("save", new CommandDelegate(Save));
-            TShock.admincommandList.Add("spawn", new CommandDelegate(Spawn));
-            TShock.admincommandList.Add("tp", new CommandDelegate(TP));
-            TShock.admincommandList.Add("tphere", new CommandDelegate(TPHere));
-            TShock.admincommandList.Add("spawnmob", new CommandDelegate(SpawnMob));
-            TShock.admincommandList.Add("butcher", new CommandDelegate(Butcher));
-            TShock.admincommandList.Add("maxspawns", new CommandDelegate(MaxSpawns));
-            TShock.admincommandList.Add("spawnrate", new CommandDelegate(SpawnRate));
-            TShock.admincommandList.Add("time", new CommandDelegate(Time));
-            TShock.admincommandList.Add("help", new CommandDelegate(Help));
-            TShock.admincommandList.Add("slap", new CommandDelegate(Slap));
-            TShock.admincommandList.Add("off-nosave", new CommandDelegate(OffNoSave));
-            TShock.admincommandList.Add("protectspawn", new CommandDelegate(ProtectSpawn));
-            TShock.admincommandList.Add("debug-config", new CommandDelegate(DebugConfiguration));
-            TShock.admincommandList.Add("playing", new CommandDelegate(Playing));
-            TShock.commandList.Add("help", new CommandDelegate(Help));
-            TShock.commandList.Add("kill", new CommandDelegate(Kill));
-            TShock.commandList.Add("playing", new CommandDelegate(Playing));
+            commands.Add(new Command("kick", "kick", Kick));
+            commands.Add(new Command("ban", "ban", Ban));
+            commands.Add(new Command("banip", "ban", BanIP));
+            commands.Add(new Command("unban", "unban", UnBan));
+            commands.Add(new Command("unbanip", "unbanip", UnBanIP));
+            commands.Add(new Command("off", "maintenance", Off));
+            commands.Add(new Command("off-nosave", "maintenance", OffNoSave));
+            commands.Add(new Command("checkupdates", "maintenance", CheckUpdates));
+            commands.Add(new Command("dropmeteor", "causeevents", DropMeteor));
+            commands.Add(new Command("star", "causeevents", Star));
+            commands.Add(new Command("bloodmoon", "causeevents", Bloodmoon));
+            commands.Add(new Command("invade", "causeevents", Invade));
+            commands.Add(new Command("eater", "spawnboss", Eater));
+            commands.Add(new Command("eye", "spawnboss", Eye));
+            commands.Add(new Command("skeletron", "spawnboss", Skeletron));
+            commands.Add(new Command("hardcore", "spawnboss", Hardcore));
+            commands.Add(new Command("spawnmob", "spawnmob", SpawnMob));
+            commands.Add(new Command("home", "tp", Home));
+            commands.Add(new Command("spawn", "tp", Spawn));
+            commands.Add(new Command("tp", "tp", TP));
+            commands.Add(new Command("tphere", "tp", TPHere));
+            commands.Add(new Command("reload", "cfg", Reload));
+            commands.Add(new Command("debug-config", "cfg", DebugConfiguration));
+            commands.Add(new Command("password", "cfg", Password));
+            commands.Add(new Command("save", "cfg", Save));
+            commands.Add(new Command("maxspawns", "cfg", MaxSpawns));
+            commands.Add(new Command("spawnrate", "cfg", SpawnRate));
+            commands.Add(new Command("time", "cfg", Time));
+            commands.Add(new Command("slap", "pvpfun", Slap));
+            commands.Add(new Command("protectspawn", "editspawn", ProtectSpawn));
+            commands.Add(new Command("help", "", Help));
+            commands.Add(new Command("playing", "", Playing));
+            commands.Add(new Command("online", "", Playing));
+            commands.Add(new Command("who", "", Playing));
+            commands.Add(new Command("auth", "", AuthToken));
+            commands.Add(new Command("me", "", ThirdPerson));
+            commands.Add(new Command("p", "", PartyChat));
+            commands.Add(new Command("antibuild", "editspawn", ToggleAntiBuild));
             if (ConfigurationManager.distributationAgent != "terraria-online")
             {
-                TShock.admincommandList.Add("kill", new CommandDelegate(Kill));
-                TShock.admincommandList.Add("item", new CommandDelegate(Item));
-                TShock.admincommandList.Add("give", new CommandDelegate(Give));
-                TShock.admincommandList.Add("heal", new CommandDelegate(Heal));
-
+                commands.Add(new Command("kill", "kill", Kill));
+                commands.Add(new Command("butcher", "cheat", Butcher));
+                commands.Add(new Command("i", "cheat", Item));
+                commands.Add(new Command("item", "cheat", Item));
+                commands.Add(new Command("give", "cheat", Give));
+                commands.Add(new Command("heal", "cheat", Heal));
             }
         }
 
         #region Command Methods
 
+        public static void ToggleAntiBuild(CommandArgs args)
+        {
+            Tools.SendMessage(args.PlayerID, "Toggled world anti-build.");
+            if (ConfigurationManager.disableBuild)
+            {
+                ConfigurationManager.disableBuild = false;
+            } else
+            {
+                ConfigurationManager.disableBuild = true;
+            }
+        }
+
+        public static void CheckUpdates(CommandArgs args)
+        {
+            ThreadPool.QueueUserWorkItem(UpdateManager.CheckUpdate);
+        }
+
+        public static void PartyChat(CommandArgs args)
+        {
+            int playerTeam = Main.player[args.PlayerID].team;
+            if (playerTeam != 0)
+            {
+                string msg = string.Format("<{0}> {1}", Main.player[args.PlayerID].name, args.Message.Remove(0, 2));
+                for (int i = 0; i < Main.player.Length; i++)
+                {
+                    if (Main.player[i].team == Main.player[args.PlayerID].team)
+                    {
+                        Tools.SendMessage(i, msg, Main.teamColor[playerTeam].R, Main.teamColor[playerTeam].G, Main.teamColor[playerTeam].B);
+                    }
+                }
+            }
+            else
+            {
+                Tools.SendMessage(args.PlayerID, "You are not in a party!", 255f, 240f, 20f);
+            }
+        }
+
+        public static void ThirdPerson(CommandArgs args)
+        {
+            string msg = args.Message.Remove(0, 3);
+            Tools.Broadcast(string.Format("*{0} {1}", Tools.FindPlayer(args.PlayerID), msg, 205, 133, 63));
+        }
+
         public static void Playing(CommandArgs args)
         {
-            Tools.SendMessage(args.PlayerID, Tools.GetPlayers());
+            Tools.SendMessage(args.PlayerID, string.Format("Current players: {0}.", Tools.GetPlayers()), 255f, 240f, 20f);
         }
 
         public static void DebugConfiguration(CommandArgs args)
         {
             int ply = args.PlayerID;
-            var commands = TShock.commandList;
-            if (TShock.players[ply].IsAdmin())
-                commands = TShock.admincommandList;
             Tools.SendMessage(ply, "TShock Config:");
-            string lineOne = "";
-            lineOne += "KickCheater : " + ConfigurationManager.kickCheater + ", ";
-            lineOne += "BanCheater : " + ConfigurationManager.banCheater + ", ";
-            lineOne += "KickGriefer : " + ConfigurationManager.kickGriefer + ", ";
-            lineOne += "BanGriefer : " + ConfigurationManager.banGriefer;
-            Tools.SendMessage(ply, lineOne, new float[] { 255f, 255f, 0f });
-            string lineTwo = "";
-            lineTwo += "BanTnt : " + ConfigurationManager.banTnt + ", ";
-            lineTwo += "KickTnt : " + ConfigurationManager.kickTnt + ", ";
-            lineTwo += "BanBoom : " + ConfigurationManager.banBoom + ", ";
-            lineTwo += "KickBoom : " + ConfigurationManager.kickBoom;
-            Tools.SendMessage(ply, lineTwo, new float[] { 255f, 255f, 0f });
-            string lineThree = "";
-            lineThree += "InvMultiplier : " + ConfigurationManager.invasionMultiplier + ", ";
-            lineThree += "ProtectS : " + ConfigurationManager.spawnProtect + ", ";
-            lineThree += "ProtectR : " + ConfigurationManager.spawnProtectRadius + ", ";
-            lineThree += "DMS : " + ConfigurationManager.defaultMaxSpawns + ", ";
-            lineThree += "SpawnRate: " + ConfigurationManager.defaultSpawnRate + ", ";
-            Tools.SendMessage(ply, lineThree, new float[] { 255f, 255f, 0f});
+            string lineOne = string.Format("BanCheater : {0}, KickCheater : {1}, BanGriefer : {2}, KickGriefer : {3}",
+                              ConfigurationManager.banCheater, ConfigurationManager.kickCheater,
+                              ConfigurationManager.banGriefer, ConfigurationManager.kickGriefer);
+            Tools.SendMessage(ply, lineOne, Color.Yellow);
+            string lineTwo = string.Format("BanTnt : {0}, KickTnt : {1}, BanBoom : {2}, KickBoom : {3}",
+                                           ConfigurationManager.banTnt, ConfigurationManager.kickTnt,
+                                           ConfigurationManager.banBoom, ConfigurationManager.kickBoom);
+            Tools.SendMessage(ply, lineTwo, Color.Yellow);
+            string lineThree = string.Format("InvMultiplier : {0}, ProtectS : {1}, ProtectR : {2}, DMS : {3}, SpawnRate {4}",
+                                             ConfigurationManager.invasionMultiplier, ConfigurationManager.spawnProtect,
+                                             ConfigurationManager.spawnProtectRadius, ConfigurationManager.defaultMaxSpawns,
+                                             ConfigurationManager.defaultSpawnRate);
+            Tools.SendMessage(ply, lineThree, Color.Yellow);
+            string lineFour = string.Format("MaxSlots : {0}, RangeChecks : {1}, SpamChecks : {2}",
+                                           ConfigurationManager.maxSlots, ConfigurationManager.rangeChecks,
+                                           ConfigurationManager.spamChecks);
+            Tools.SendMessage(ply, lineFour, Color.Yellow);
         }
 
         public static void Kick(CommandArgs args)
         {
-            string plStr = args.Message.Remove(0, 5).Trim();
-            int ply = args.PlayerID;
-            int player = Tools.FindPlayer(plStr);
-            if (!(player == -1 || player == -2 || plStr == ""))
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                if (!TShock.players[player].IsAdmin())
-                {
-                    Tools.Kick(player, "You were kicked.");
-                    Tools.Broadcast(Tools.FindPlayer(player) + " was kicked by " + Tools.FindPlayer(ply));
-                }
-                else
-                    Tools.SendMessage(ply, "You can't kick another admin!", new float[] { 255f, 0f, 0f });
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /kick <player> [reason]", Color.Red);
+                return;
             }
-            else if (Tools.FindPlayer(plStr) == -2)
-                Tools.SendMessage(ply, "More than one player matched!", new float[] { 255f, 0f, 0f });
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing player name", Color.Red);
+                return;
+            }
+
+            string plStr = args.Parameters[0];
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(ply, "Invalid player!", new float[] { 255f, 0f, 0f });
+            {
+                string reason = args.Parameters.Count > 1 ? String.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)) : "Misbehaviour.";
+                if (!Tools.Kick(player, reason))
+                {
+                    Tools.SendMessage(adminplr, "You can't kick another admin!", Color.Red);
+                }
+            }
         }
 
         public static void Ban(CommandArgs args)
         {
-            string plStr = args.Message.Remove(0, 4).Trim();
-            int ply = args.PlayerID;
-            int player = Tools.FindPlayer(plStr);
-            if (!(player == -1 || player == -2 || plStr == ""))
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                if (!TShock.players[player].IsAdmin())
-                {
-                    FileTools.WriteBan(player);
-                    Tools.Kick(player, "You were banned.");
-                    Tools.Broadcast(Tools.FindPlayer(ply) + " banned " + Tools.FindPlayer(player) + "!");
-                }
-                else
-                    Tools.SendMessage(ply, "You can't ban another admin!", new float[] { 255f, 0f, 0f });
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /ban <player> [reason]", Color.Red);
+                return;
             }
-            else if (Tools.FindPlayer(plStr) == -2)
-                Tools.SendMessage(ply, "More than one player matched!", new float[] { 255f, 0f, 0f });
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing player name", Color.Red);
+                return;
+            }
+
+            string plStr = args.Parameters[0];
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(ply, "Invalid player!", new float[] { 255f, 0f, 0f });
+            {
+                string reason = args.Parameters.Count > 1 ? String.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)) : "Misbehaviour.";
+                if (!Tools.Ban(player, reason))
+                {
+                    Tools.SendMessage(adminplr, "You can't ban another admin!", Color.Red);
+                }
+            }
+        }
+
+        public static void BanIP(CommandArgs args)
+        {
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
+            {
+                Tools.SendMessage(adminplr, "Syntax: /banip <ip> [reason]", Color.Red);
+                return;
+            }
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing IP address", Color.Red);
+                return;
+            }
+
+            string ip = args.Parameters[0];
+            string reason = args.Parameters.Count > 1 ? String.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)) : "Manually added IP address ban.";
+            TShock.Bans.AddBan(ip, "", reason);
+        }
+
+        public static void UnBan(CommandArgs args)
+        {
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /unban <player>", Color.Red);
+                return;
+            }
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing player name", Color.Red);
+                return;
+            }
+
+            string plStr = args.Parameters[0];
+            var ban = TShock.Bans.GetBanByName(plStr);
+            if (ban != null)
+            {
+                TShock.Bans.RemoveBan(ban);
+                Tools.SendMessage(adminplr, string.Format("Unbanned {0} ({1})!", ban.Name, ban.IP), Color.Red);
+            }
+            else
+            {
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            }
+        }
+
+        public static void UnBanIP(CommandArgs args)
+        {
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /unbanip <ip>", Color.Red);
+                return;
+            }
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing ip", Color.Red);
+                return;
+            }
+
+            string plStr = args.Parameters[0];
+            var ban = TShock.Bans.GetBanByIp(plStr);
+            if (ban != null)
+            {
+                TShock.Bans.RemoveBan(ban);
+                Tools.SendMessage(adminplr, string.Format("Unbanned {0} ({1})!", ban.Name, ban.IP), Color.Red);
+            }
+            else
+            {
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            }
         }
 
         public static void Off(CommandArgs args)
         {
+            for (int player = 0; player < Main.maxPlayers; player++)
+            {
+                if (Main.player[player].active)
+                {
+                    Tools.ForceKick(player, "Server shutting down!");
+                }
+            }
             WorldGen.saveWorld();
             Netplay.disconnect = true;
         }
@@ -174,11 +482,11 @@ namespace TShockAPI
             int penis57 = Main.rand.Next(Main.maxTilesX - 50) + 100;
             penis57 *= 0x10;
             int penis58 = Main.rand.Next((int)(Main.maxTilesY * 0.05)) * 0x10;
-            Microsoft.Xna.Framework.Vector2 vector = new Microsoft.Xna.Framework.Vector2((float)penis57, (float)penis58);
+            Vector2 vector = new Vector2(penis57, penis58);
             float speedX = Main.rand.Next(-100, 0x65);
             float speedY = Main.rand.Next(200) + 100;
-            float penis61 = (float)Math.Sqrt((double)((speedX * speedX) + (speedY * speedY)));
-            penis61 = ((float)penis56) / penis61;
+            float penis61 = (float)Math.Sqrt(((speedX * speedX) + (speedY * speedY)));
+            penis61 = (penis56) / penis61;
             speedX *= penis61;
             speedY *= penis61;
             Projectile.NewProjectile(vector.X, vector.Y, speedX, speedY, 12, 0x3e8, 10f, Main.myPlayer);
@@ -187,7 +495,7 @@ namespace TShockAPI
         public static void Bloodmoon(CommandArgs args)
         {
             int ply = args.PlayerID;
-            Tools.Broadcast(Tools.FindPlayer(ply) + " turned on blood moon.");
+            Tools.Broadcast(string.Format("{0} turned on blood moon.", Tools.FindPlayer(ply)));
             Main.bloodMoon = true;
             Main.time = 0;
             Main.dayTime = false;
@@ -201,7 +509,7 @@ namespace TShockAPI
             int y = args.PlayerY;
             int ply = args.PlayerID;
             Tools.NewNPC((int)ConfigurationManager.NPCList.WORLD_EATER, x, y, ply);
-            Tools.Broadcast(Tools.FindPlayer(ply) + " has spawned an eater of worlds!");
+            Tools.Broadcast(string.Format("{0} has spawned an eater of worlds!", Tools.FindPlayer(ply)));
         }
 
         public static void Eye(CommandArgs args)
@@ -210,15 +518,16 @@ namespace TShockAPI
             int y = args.PlayerY;
             int ply = args.PlayerID;
             Tools.NewNPC((int)ConfigurationManager.NPCList.EYE, x, y, ply);
-            Tools.Broadcast(Tools.FindPlayer(ply) + " has spawned an eye!");
+            Tools.Broadcast(string.Format("{0} has spawned an eye!", Tools.FindPlayer(ply)));
         }
+
         public static void Skeletron(CommandArgs args)
         {
             int x = args.PlayerX;
             int y = args.PlayerY;
             int ply = args.PlayerID;
             Tools.NewNPC((int)ConfigurationManager.NPCList.SKELETRON, x, y, ply);
-            Tools.Broadcast(Tools.FindPlayer(ply) + " has spawned skeletron!");
+            Tools.Broadcast(string.Format("{0} has spawned skeletron!", Tools.FindPlayer(ply)));
         }
 
         public static void Hardcore(CommandArgs args)
@@ -230,7 +539,7 @@ namespace TShockAPI
             {
                 Tools.NewNPC(i, x, y, ply);
             }
-            Tools.Broadcast(Tools.FindPlayer(ply) + " has spawned all 3 bosses!");
+            Tools.Broadcast(string.Format("{0} has spawned all 3 bosses!", Tools.FindPlayer(ply)));
         }
 
         public static void Invade(CommandArgs args)
@@ -238,12 +547,12 @@ namespace TShockAPI
             int ply = args.PlayerID;
             if (Main.invasionSize <= 0)
             {
-                Tools.Broadcast(Main.player[ply].name + " has started an invasion.");
+                Tools.Broadcast(string.Format("{0} has started an invasion.", Tools.FindPlayer(ply)));
                 TShock.StartInvasion();
             }
             else
             {
-                Tools.Broadcast(Main.player[ply].name + " has ended an invasion.");
+                Tools.Broadcast(string.Format("{0} has ended an invasion.", Tools.FindPlayer(ply)));
                 Main.invasionSize = 0;
             }
         }
@@ -253,7 +562,7 @@ namespace TShockAPI
             int ply = args.PlayerID;
             string passwd = args.Message.Remove(0, 9).Trim();
             Netplay.password = passwd;
-            Tools.SendMessage(ply, "Server password changed to: " + passwd);
+            Tools.SendMessage(ply, string.Format("Server password changed to: {0}", passwd));
         }
 
         public static void Save(CommandArgs args)
@@ -263,184 +572,275 @@ namespace TShockAPI
             Tools.SendMessage(ply, "World saved.");
         }
 
+        public static void Home(CommandArgs args)
+        {
+            int ply = args.PlayerID;
+            TShock.Teleport(ply, Main.player[args.PlayerID].SpawnX * 16 + 8 - Main.player[ply].width / 2,
+                            Main.player[args.PlayerID].SpawnY * 16 - Main.player[ply].height);
+            Tools.SendMessage(ply, "Teleported to your spawnpoint.");
+        }
+
         public static void Spawn(CommandArgs args)
         {
             int ply = args.PlayerID;
-            TShock.Teleport(ply, Main.spawnTileX * 16 + 8 - Main.player[ply].width / 2, Main.spawnTileY * 16 - Main.player[ply].height);
-            Tools.SendMessage(ply, "Teleported to your spawnpoint.");
+            TShock.Teleport(ply, Main.spawnTileX * 16 + 8 - Main.player[ply].width / 2,
+                            Main.spawnTileY * 16 - Main.player[ply].height);
+            Tools.SendMessage(ply, "Teleported to the map's spawnpoint.");
+        }
+
+        public static void AuthToken(CommandArgs args)
+        {
+            if (ConfigurationManager.authToken == 0)
+            {
+                return;
+            }
+            int givenCode = Convert.ToInt32(args.Parameters[0]);
+            if (givenCode == ConfigurationManager.authToken)
+            {
+                TextWriter tw = new StreamWriter(FileTools.SaveDir + "users.txt", true);
+                tw.Write("\n" +
+                         Tools.GetRealIP(
+                             Convert.ToString(Netplay.serverSock[args.PlayerID].tcpClient.Client.RemoteEndPoint)) +
+                         " superadmin");
+                Tools.SendMessage(args.PlayerID, "SuperAdmin authenticated. Please re-connect using the same IP.");
+                ConfigurationManager.authToken = 0;
+                tw.Close();
+            }
         }
 
         public static void TP(CommandArgs args)
         {
-            int ply = args.PlayerID;
-            string player = args.Message.Remove(0, 3).Trim();
-            if (Tools.FindPlayer(player) != -1 && Tools.FindPlayer(player) != -2 && player != "")
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                TShock.Teleport(ply, Main.player[Tools.FindPlayer(player)].position.X, Main.player[Tools.FindPlayer(player)].position.Y);
-                Tools.SendMessage(ply, "Teleported to " + player);
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /tp <player> ", Color.Red);
+                return;
             }
+
+            string plStr = String.Join(" ", args.Parameters);
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(ply, "Invalid player!", new float[] { 255f, 0f, 0f });
+            {
+                TShock.Teleport(adminplr, Main.player[player].position.X, Main.player[player].position.Y);
+                Tools.SendMessage(adminplr, string.Format("Teleported to {0}", Tools.FindPlayer(player)));
+            }
         }
 
         public static void TPHere(CommandArgs args)
         {
-            int ply = args.PlayerID;
-            string player = args.Message.Remove(0, 7).Trim();
-            if (Tools.FindPlayer(player) != -1 && Tools.FindPlayer(player) != -2 && player != "")
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                TShock.Teleport(Tools.FindPlayer(player), Main.player[ply].position.X, Main.player[ply].position.Y);
-                Tools.SendMessage(Tools.FindPlayer(player), "You were teleported to " + Tools.FindPlayer(ply) + ".");
-                Tools.SendMessage(ply, "You brought " + player + " here.");
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /tphere <player> ", Color.Red);
+                return;
             }
+
+            string plStr = String.Join(" ", args.Parameters);
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(ply, "Invalid player!", new float[] { 255f, 0f, 0f });
+            {
+                TShock.Teleport(player, Main.player[adminplr].position.X, Main.player[adminplr].position.Y);
+                Tools.SendMessage(player, string.Format("You were teleported to {0}.", Tools.FindPlayer(adminplr)));
+                Tools.SendMessage(adminplr, string.Format("You brought {0} here.", Tools.FindPlayer(player)));
+            }
         }
 
         public static void SpawnMob(CommandArgs args)
         {
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1 || args.Parameters.Count > 2)
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /spawnmob <mob name/id> [amount]", Color.Red);
+                return;
+            }
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing mob name/id", Color.Red);
+                return;
+            }
+
             int x = args.PlayerX;
             int y = args.PlayerY;
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
-            if (msgargs.Length >= 2 && msgargs.Length <= 3)
-            {
-                for (int i = 1; i < msgargs.Length; i++)
-                    msgargs[i] = ((msgargs[i].TrimEnd('"')).TrimStart('"'));
-                string inputtype = "";
-                int amount = 1;
-                int npcid = -1;
-                int type = -1;
-                inputtype = msgargs[1];
-                if (msgargs.Length == 3)
-                    int.TryParse(msgargs[2], out amount);
+            int type = -1;
+            int amount = 1;
 
-                if (!int.TryParse(inputtype, out type))
-                    type = TShock.GetNPCID(inputtype);
-                if (type >= 1 && type <= 45)
-                {
-                    for (int i = 0; i < amount; i++)
-                        npcid = NPC.NewNPC(x, y, type, 0);
-                    Tools.Broadcast(string.Format("{0} was spawned {1} time(s).", Main.npc[npcid].name, amount));;
-                }
+            if (!int.TryParse(args.Parameters[0], out type))
+                type = TShock.GetNPCID(args.Parameters[0]);
+            if (args.Parameters.Count == 2 && !int.TryParse(args.Parameters[1], out amount))
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /spawnmob <mob name/id> [amount]", Color.Red);
+                return;
+            }
+
+            if (type >= 1 && type < Main.maxNPCTypes)
+            {
+                int npcid = -1;
+                for (int i = 0; i < amount; i++)
+                    npcid = NPC.NewNPC(x, y, type, 0);
+                Tools.Broadcast(string.Format("{0} was spawned {1} time(s).", Main.npc[npcid].name, amount));
             }
             else
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /spawnmob <mob name/id> [amount]", new float[] { 255f, 0f, 0f });
+                Tools.SendMessage(adminplr, "Invalid mob type!", Color.Red);
         }
 
         public static void Item(CommandArgs args)
         {
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)")[1];
-            int ply = args.PlayerID;
-            bool flag = false;
-            if (msgargs.Length >= 2)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                msgargs = ((msgargs.TrimEnd('"')).TrimStart('"'));
-                int type = 0;
-                if (!int.TryParse(msgargs, out type))
-                    type = TShock.GetItemID(msgargs);
-                if (type >= 1 && type <= 238)
-                {
-                    for (int i = 0; i < 40; i++)
-                    {
-                        if (!Main.player[ply].inventory[i].active)
-                        {
-                            //Main.player[ply].inventory[i].SetDefaults(type);
-                            //Main.player[ply].inventory[i].stack = Main.player[ply].inventory[i].maxStack;
-                            int id = Terraria.Item.NewItem(0, 0, 0, 0, type, 1, true);
-                            Main.item[id].position.X = (float)args.PlayerX;
-                            Main.item[id].position.Y = (float)args.PlayerY;
-                            Main.item[id].stack = Main.item[id].maxStack;
-                            //TShock.SendDataAll(21, -1, "", id);
-                            NetMessage.SendData(21, -1, -1, "", id, 0f, 0f, 0f);
-                            Tools.SendMessage(ply, "Got some " + Main.item[id].name + ".");
-                            //TShock.UpdateInventories();
-                            flag = true;
-                            break;
-                        }
-                    }
-                    if (!flag)
-                        Tools.SendMessage(args.PlayerID, "You don't have free slots!", new float[] { 255f, 0f, 0f });
-                }
-                else
-                    Tools.SendMessage(args.PlayerID, "Invalid item type!", new float[] { 255f, 0f, 0f });
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /item <item name/id>", Color.Red);
+                return;
             }
-            else
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /item <item name/id>", new float[] { 255f, 0f, 0f });
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing item name/id", Color.Red);
+                return;
+            }
+
+            int type = -1;
+            if (!int.TryParse(args.Parameters[0], out type))
+                type = TShock.GetItemID(String.Join(" ", args.Parameters));
+
+            if (type < 1 || type >= Main.maxItemTypes)
+            {
+                Tools.SendMessage(adminplr, "Invalid item type!", Color.Red);
+                return;
+            }
+
+            bool flag = false;
+            for (int i = 0; i < 40; i++)
+            {
+                if (!Main.player[adminplr].inventory[i].active)
+                {
+                    //Main.player[ply].inventory[i].SetDefaults(type);
+                    //Main.player[ply].inventory[i].stack = Main.player[ply].inventory[i].maxStack;
+                    int id = Terraria.Item.NewItem(0, 0, 0, 0, type, 1, true);
+                    Main.item[id].position.X = args.PlayerX;
+                    Main.item[id].position.Y = args.PlayerY;
+                    Main.item[id].stack = Main.item[id].maxStack;
+                    //TShock.SendDataAll(21, -1, "", id);
+                    NetMessage.SendData(21, -1, -1, "", id, 0f, 0f, 0f);
+                    Tools.SendMessage(adminplr, string.Format("Got some {0}.", Main.item[id].name));
+                    //TShock.UpdateInventories();
+                    flag = true;
+                    break;
+                }
+            }
+            if (!flag)
+                Tools.SendMessage(adminplr, "You don't have free slots!", Color.Red);
         }
 
         public static void Give(CommandArgs args)
         {
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
-            int ply = args.PlayerID;
-            bool flag = false;
-            if (msgargs.Length == 3)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count != 2)
             {
-                for (int i = 1; i < msgargs.Length; i++)
-                    msgargs[i] = ((msgargs[i].TrimEnd('"')).TrimStart('"'));
-                int type = 0;
-                int player = -1;
-                if (!int.TryParse(msgargs[1], out type))
-                    type = TShock.GetItemID(msgargs[1]);
-                if (type >= 1 && type <= 238)
-                {
-                    player = Tools.FindPlayer(msgargs[2]);
-                    if (player != -1)
-                    {
-                        for (int i = 0; i < 40; i++)
-                        {
-                            if (!Main.player[player].inventory[i].active)
-                            {
-                                //Main.player[player].inventory[i].SetDefaults(type);
-                                //Main.player[player].inventory[i].stack = Main.player[player].inventory[i].maxStack;
-                                int id = Terraria.Item.NewItem(0, 0, 0, 0, type, 1, true);
-                                Main.item[id].position.X = Main.player[player].position.X;
-                                Main.item[id].position.Y = Main.player[player].position.Y;
-                                Main.item[id].stack = Main.item[id].maxStack;
-                                //TShock.SendDataAll(21, -1, "", id);
-                                NetMessage.SendData(21, -1, -1, "", id, 0f, 0f, 0f);
-                                Tools.SendMessage(ply, string.Format("Gave {0} some {1}.", msgargs[2], Main.item[id].name));
-                                Tools.SendMessage(player, string.Format("{0} gave you some {1}.", Tools.FindPlayer(ply), Main.item[id].name));
-                                //TShock.UpdateInventories();
-                                flag = true;
-                                break;
-                            }
-                        }
-                        if (!flag)
-                            Tools.SendMessage(args.PlayerID, "Player does not have free slots!", new float[] { 255f, 0f, 0f });
-                    }
-                    else
-                        Tools.SendMessage(args.PlayerID, "Invalid player!", new float[] { 255f, 0f, 0f });
-                }
-                else
-                    Tools.SendMessage(args.PlayerID, "Invalid item type!", new float[] { 255f, 0f, 0f });
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /give <item type/id> <player>", Color.Red);
+                return;
             }
+            if (args.Parameters[0].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing item name/id", Color.Red);
+                return;
+            }
+            if (args.Parameters[1].Length == 0)
+            {
+                Tools.SendMessage(adminplr, "Missing player name", Color.Red);
+                return;
+            }
+
+            int type = -1;
+            if (!int.TryParse(args.Parameters[0], out type))
+                type = TShock.GetItemID(args.Parameters[0]);
+
+            if (type < 1 || type >= Main.maxItemTypes)
+            {
+                Tools.SendMessage(args.PlayerID, "Invalid item type!", Color.Red);
+                return;
+            }
+
+            string plStr = args.Parameters[1];
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /give <item type/id> <player>", new float[] { 255f, 0f, 0f });
+            {
+                bool flag = false;
+                for (int i = 0; i < 40; i++)
+                {
+                    if (!Main.player[player].inventory[i].active)
+                    {
+                        //Main.player[player].inventory[i].SetDefaults(type);
+                        //Main.player[player].inventory[i].stack = Main.player[player].inventory[i].maxStack;
+                        int id = Terraria.Item.NewItem(0, 0, 0, 0, type, 1, true);
+                        Main.item[id].position.X = Main.player[player].position.X;
+                        Main.item[id].position.Y = Main.player[player].position.Y;
+                        Main.item[id].stack = Main.item[id].maxStack;
+                        //TShock.SendDataAll(21, -1, "", id);
+                        NetMessage.SendData(21, -1, -1, "", id, 0f, 0f, 0f);
+                        Tools.SendMessage(adminplr,
+                                          string.Format("Gave {0} some {1}.", Tools.FindPlayer(player), Main.item[id].name));
+                        Tools.SendMessage(player,
+                                          string.Format("{0} gave you some {1}.", Tools.FindPlayer(adminplr),
+                                                        Main.item[id].name));
+                        //TShock.UpdateInventories();
+                        flag = true;
+                        break;
+                    }
+                }
+                if (!flag)
+                    Tools.SendMessage(args.PlayerID, "Player does not have free slots!", Color.Red);
+            }
         }
 
         public static void Heal(CommandArgs args)
         {
-            int ply = args.PlayerID;
-            int x = args.PlayerX;
-            int y = args.PlayerY;
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
-            int player = ply;
-            if (msgargs.Length == 2)
-                player = Tools.FindPlayer((msgargs[1].TrimEnd('"')).TrimStart('"'));
-            if (player != ply && player >= 0)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count > 0)
             {
-                Tools.SendMessage(ply, string.Format("You just healed {0}", (msgargs[1].TrimEnd('"')).TrimStart('"')));
-                Tools.SendMessage(player, string.Format("{0} just healed you!", Tools.FindPlayer(ply)));
-                x = (int)Main.player[player].position.X;
-                y = (int)Main.player[player].position.Y;
+                string plStr = String.Join(" ", args.Parameters);
+                int player = Tools.FindPlayer(plStr);
+                if (player == -1)
+                    Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+                else if (player == -2)
+                    Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
+                else
+                {
+                    DropHearts((int)Main.player[player].position.X, (int)Main.player[player].position.Y, 20);
+                    Tools.SendMessage(adminplr, string.Format("You just healed {0}", Tools.FindPlayer(player)));
+                    Tools.SendMessage(player, string.Format("{0} just healed you!", Tools.FindPlayer(adminplr)));
+                }
             }
             else
-                Tools.SendMessage(ply, "You just got healed!");
-            for (int i = 0; i < 20; i++)
+            {
+                DropHearts(args.PlayerX, args.PlayerY, 20);
+                Tools.SendMessage(adminplr, "You just got healed!");
+            }
+        }
+
+        private static void DropHearts(int x, int y, int count)
+        {
+            for (int i = 0; i < count; i++)
             {
                 int itemid = Terraria.Item.NewItem(1, 1, 1, 1, 58);
-                Main.item[itemid].position.X = (float)x;
-                Main.item[itemid].position.Y = (float)y;
+                Main.item[itemid].position.X = x;
+                Main.item[itemid].position.Y = y;
                 NetMessage.SendData(21, -1, -1, "", itemid, 0f, 0f, 0f);
             }
         }
@@ -455,161 +855,241 @@ namespace TShockAPI
                 else
                 {
                     Main.npc[i].StrikeNPC(99999, 90f, 1);
-                    NetMessage.SendData(28, -1, -1, "", i, (float)99999, 90f, 1);
+                    NetMessage.SendData(28, -1, -1, "", i, 99999, 90f, 1);
                     killcount++;
                 }
             }
-            Tools.Broadcast("Killed " + killcount.ToString() + " NPCs.");
+            Tools.Broadcast(string.Format("Killed {0} NPCs.", killcount));
         }
 
         public static void MaxSpawns(CommandArgs args)
         {
-            int ply = args.PlayerID;
-            int amount = Convert.ToInt32(args.Message.Remove(0, 10));
-            int.TryParse(args.Message.Remove(0, 10), out amount);
-            NPC.defaultSpawnRate = amount;
-            Tools.Broadcast(Tools.FindPlayer(ply) + " changed the maximum spawns to: " + amount);
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count != 1)
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /maxspawns <maxspawns>", Color.Red);
+                return;
+            }
+
+            int amount = Convert.ToInt32(args.Parameters[0]);
+            int.TryParse(args.Parameters[0], out amount);
+            NPC.defaultMaxSpawns = amount;
+            ConfigurationManager.defaultMaxSpawns = amount;
+            Tools.Broadcast(string.Format("{0} changed the maximum spawns to: {1}", Tools.FindPlayer(adminplr), amount));
         }
 
         public static void SpawnRate(CommandArgs args)
         {
-            int ply = args.PlayerID;
-            int amount = Convert.ToInt32(args.Message.Remove(0, 10));
-            int.TryParse(args.Message.Remove(0, 10), out amount);
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count != 1)
+            {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /spawnrate <spawnrate>", Color.Red);
+                return;
+            }
+
+            int amount = Convert.ToInt32(args.Parameters[0]);
+            int.TryParse(args.Parameters[0], out amount);
             NPC.defaultSpawnRate = amount;
-            Tools.Broadcast(Tools.FindPlayer(ply) + " changed the spawn rate to: " + amount);
+            ConfigurationManager.defaultSpawnRate = amount;
+            Tools.Broadcast(string.Format("{0} changed the spawn rate to: {1}", Tools.FindPlayer(adminplr), amount));
         }
 
         public static void Help(CommandArgs args)
         {
             int ply = args.PlayerID;
-            var commands = TShock.commandList;
-            if (TShock.players[ply].IsAdmin())
-                commands = TShock.admincommandList;
             Tools.SendMessage(ply, "TShock Commands:");
-            int h = 1;
-            int i = 0;
-            string tempstring = "";
             int page = 1;
-            if (args.Message.Split(' ').Length == 2)
-                int.TryParse(args.Message.Split(' ')[1], out page);
-            if (commands.Count > (15 * (page - 1)))
+            if (args.Parameters.Count > 0)
+                int.TryParse(args.Parameters[0], out page);
+            List<Command> cmdlist = new List<Command>();
+            for (int j = 0; j < commands.Count; j++)
             {
-                for (int j = (15 * (page - 1)); j < commands.Count; j++)
+                if (commands[j].CanRun(TShock.players[ply]))
                 {
-                    if (i == 3) break;
-                    if (j == commands.Count - 1)
+                    cmdlist.Add(commands[j]);
+                }
+            }
+            var sb = new StringBuilder();
+            if (cmdlist.Count > (15 * (page - 1)))
+            {
+                for (int j = (15 * (page - 1)); j < (15 * page); j++)
+                {
+                    if (sb.Length != 0)
+                        sb.Append(", ");
+                    sb.Append("/").Append(cmdlist[j].Name());
+                    if (j == cmdlist.Count - 1)
                     {
-                        tempstring += "/" + commands.Keys.ElementAt(j) + ", ";
-                        Tools.SendMessage(ply, tempstring.TrimEnd(new char[] { ' ', ',' }), new float[] { 255f, 255f, 0f });
+                        Tools.SendMessage(ply, sb.ToString(), Color.Yellow);
+                        break;
                     }
-                    if ((h - 1) % 5 == 0 && (h - 1) != 0)
+                    if ((j + 1) % 5 == 0)
                     {
-                        Tools.SendMessage(ply, tempstring.TrimEnd(new char[] { ' ', ',' }), new float[] { 255f, 255f, 0f });
-                        tempstring = "/" + commands.Keys.ElementAt(j) + ", ";
-                        i++;
-                        h++;
-                    }
-                    else
-                    {
-                        tempstring += "/" + commands.Keys.ElementAt(j) + ", ";
-                        h++;
+                        Tools.SendMessage(ply, sb.ToString(), Color.Yellow);
+                        sb.Clear();
                     }
                 }
             }
-            if (commands.Count > (15 * page))
-            { Tools.SendMessage(ply, "Type /help " + (page + 1).ToString() + " for more commands.", new float[] { 255f, 0f, 255f }); }
-            Tools.SendMessage(ply, "Terraria commands:");
-            Tools.SendMessage(ply, "/playing, /p, /me", new float[] { 255f, 255f, 0f });
+            if (cmdlist.Count > (15 * page))
+            {
+                Tools.SendMessage(ply, string.Format("Type /help {0} for more commands.", (page + 1)), Color.Yellow);
+            }
         }
 
         public static void Time(CommandArgs args)
         {
-            var arg = args.Message.Split(' ');
-            if (arg.Length == 2)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count != 1)
             {
-                if (arg[1] == "day")
-                {
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /time <day/night/dusk/noon/midnight>", Color.Red);
+                return;
+            }
+
+            switch (args.Parameters[0])
+            {
+                case "day":
                     Main.time = 0;
                     Main.dayTime = true;
                     NetMessage.SendData(18, -1, -1, "", 0, 0, Main.sunModY, Main.moonModY);
                     NetMessage.syncPlayers();
-                    Tools.Broadcast(Tools.FindPlayer(args.PlayerID) + " set time to day.");
-                }
-                else if (arg[1] == "night")
-                {
+                    Tools.Broadcast(string.Format("{0} set time to day.", Tools.FindPlayer(args.PlayerID)));
+                    break;
+                case "night":
                     Main.time = 0;
                     Main.dayTime = false;
                     NetMessage.SendData(18, -1, -1, "", 0, 0, Main.sunModY, Main.moonModY);
                     NetMessage.syncPlayers();
-                    Tools.Broadcast(Tools.FindPlayer(args.PlayerID) + " set time to night.");
-                }
-                else
-                    Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /time <day/night>", new float[] { 255f, 0f, 0f });
+                    Tools.Broadcast(string.Format("{0} set time to night.", Tools.FindPlayer(args.PlayerID)));
+                    break;
+                case "dusk":
+                    Main.dayTime = false;
+                    Main.time = 0.0;
+                    NetMessage.SendData(18, -1, -1, "", 0, 0, Main.sunModY, Main.moonModY);
+                    NetMessage.syncPlayers();
+                    Tools.Broadcast(string.Format("{0} set time to dusk.", Tools.FindPlayer(args.PlayerID)));
+                    break;
+                case "noon":
+                    Main.dayTime = true;
+                    Main.time = 27000.0;
+                    NetMessage.SendData(18, -1, -1, "", 0, 0, Main.sunModY, Main.moonModY);
+                    NetMessage.syncPlayers();
+                    Tools.Broadcast(string.Format("{0} set time to noon.", Tools.FindPlayer(args.PlayerID)));
+                    break;
+                case "midnight":
+                    Main.dayTime = false;
+                    Main.time = 16200.0;
+                    NetMessage.SendData(18, -1, -1, "", 0, 0, Main.sunModY, Main.moonModY);
+                    NetMessage.syncPlayers();
+                    Tools.Broadcast(string.Format("{0} set time to midnight.", Tools.FindPlayer(args.PlayerID)));
+                    break;
+                default:
+                    Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /time <day/night/dusk/noon/midnight>", Color.Red);
+                    break;
             }
-            else
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /time <day/night>", new float[] { 255f, 0f, 0f });
         }
 
         public static void Kill(CommandArgs args)
         {
-            bool isadmin = TShock.players[args.PlayerID].IsAdmin(); ;
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
-            if (msgargs.Length == 2 && isadmin)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1)
             {
-                int player = -1;
-                player = Tools.FindPlayer((msgargs[1].TrimEnd('"')).TrimStart('"'));
-                Tools.SendMessage(args.PlayerID, "You just killed " + Tools.FindPlayer(player) + "!");
-                Tools.SendMessage(player, Tools.FindPlayer(args.PlayerID) + " just killed you!");
-                TShock.KillMe(player);
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /kill <player>", Color.Red);
+                return;
             }
+
+            string plStr = String.Join(" ", args.Parameters);
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
+            else if (player == adminplr)
+                Tools.SendMessage(adminplr, "Can't kill yourself!", Color.Red);
             else
             {
-                Tools.SendMessage(args.PlayerID, "You just suicided.");
-                TShock.KillMe(args.PlayerID);
+                Tools.SendMessage(adminplr, string.Format("You just killed {0}!", Tools.FindPlayer(player)));
+                Tools.SendMessage(player, string.Format("{0} just killed you!", Tools.FindPlayer(adminplr)));
+                TShock.KillMe(player);
             }
         }
 
         public static void Slap(CommandArgs args)
         {
-            var msgargs = Regex.Split(args.Message, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
-            for (int i = 0; i < msgargs.Length; i++)
-                msgargs[i] = (msgargs[i].TrimStart('"')).TrimEnd('"');
-            if (msgargs.Length == 1)
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /slap <player> [dmg]", new float[] { 255f, 0f, 0f });
-            else if (msgargs.Length == 2)
+            int adminplr = args.PlayerID;
+
+            if (args.Parameters.Count < 1 || args.Parameters.Count > 2)
             {
-                int player = Tools.FindPlayer(msgargs[1]);
-                if (player == -1)
-                    Tools.SendMessage(args.PlayerID, "Invalid player!", new float[] { 255f, 0f, 0f });
-                else
-                {
-                    TShock.SendDataAll(26, -1, "", player, (float)((new Random()).Next(1, 20)), (float)5, (float)0);
-                    Tools.Broadcast(Tools.FindPlayer(args.PlayerID) + " slapped " + Tools.FindPlayer(player) + " for 5 damage.");
-                }
+                Tools.SendMessage(adminplr, "Invalid syntax! Proper syntax: /slap <player> [dmg]", Color.Red);
+                return;
             }
-            else if (msgargs.Length == 3)
+            if (args.Parameters[0].Length == 0)
             {
-                int player = Tools.FindPlayer(msgargs[1]);
-                int damage = 5;
-                int.TryParse(msgargs[2], out damage);
-                if (player == -1)
-                    Tools.SendMessage(args.PlayerID, "Invalid player!", new float[] { 255f, 0f, 0f });
-                else
-                {
-                    TShock.SendDataAll(26, -1, "", player, (float)((new Random()).Next(-1, 1)), (float)damage, (float)0);
-                    Tools.Broadcast(Tools.FindPlayer(args.PlayerID) + " slapped " + Tools.FindPlayer(player) + " for " + damage.ToString() + " damage.");
-                }
+                Tools.SendMessage(adminplr, "Missing player name", Color.Red);
+                return;
             }
+
+            string plStr = args.Parameters[0];
+            int player = Tools.FindPlayer(plStr);
+            if (player == -1)
+                Tools.SendMessage(adminplr, "Invalid player!", Color.Red);
+            else if (player == -2)
+                Tools.SendMessage(adminplr, "More than one player matched!", Color.Red);
             else
-                Tools.SendMessage(args.PlayerID, "Invalid syntax! Proper syntax: /slap <player> [dmg]", new float[] { 255f, 0f, 0f });
+            {
+                int damage = 5;
+                if (args.Parameters.Count == 2)
+                {
+                    int.TryParse(args.Parameters[1], out damage);
+                }
+                NetMessage.SendData(26, -1, -1, "", player, ((new Random()).Next(-1, 1)), damage, (float)0);
+                Tools.Broadcast(string.Format("{0} slapped {1} for {2} damage.", 
+                                Tools.FindPlayer(adminplr), Tools.FindPlayer(player), damage));
+            }
         }
 
         public static void ProtectSpawn(CommandArgs args)
         {
             ConfigurationManager.spawnProtect = (ConfigurationManager.spawnProtect == false);
-            Tools.SendMessage(args.PlayerID, "Spawn is now " + (ConfigurationManager.spawnProtect ? "protected" : "open") + ".");
+            Tools.SendMessage(args.PlayerID,
+                              string.Format("Spawn is now {0}.", (ConfigurationManager.spawnProtect ? "protected" : "open")));
         }
-        #endregion
+
+        public static void UpdateNow(CommandArgs args)
+        {
+            Process TServer = Process.GetCurrentProcess();
+
+            StreamWriter sw = new StreamWriter("pid");
+            sw.Write(TServer.Id);
+            sw.Close();
+
+            sw = new StreamWriter("pn");
+            sw.Write(TServer.ProcessName + " " + Environment.CommandLine);
+            sw.Close();
+
+            WebClient client = new WebClient();
+            client.Headers.Add("user-agent", "TShock");
+            byte[] updatefile = client.DownloadData("http://tsupdate.shankshock.com/UpdateTShock.exe");
+
+            BinaryWriter bw = new BinaryWriter(new FileStream("UpdateTShock.exe", FileMode.Create));
+            bw.Write(updatefile);
+            bw.Close();
+
+            Process.Start(new ProcessStartInfo("UpdateTShock.exe"));
+
+            for (int player = 0; player < Main.maxPlayers; player++)
+            {
+                if (Main.player[player].active)
+                {
+                    Tools.ForceKick(player, "Server shutting down for update!");
+                }
+            }
+            WorldGen.saveWorld();
+            Netplay.disconnect = true;
+        }
+
+        #endregion Command Methods
     }
 }
