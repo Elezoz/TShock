@@ -224,6 +224,7 @@ namespace TShockAPI
             commands.Add(new Command("me", "", ThirdPerson));
             commands.Add(new Command("p", "", PartyChat));
             commands.Add(new Command("antibuild", "editspawn", ToggleAntiBuild));
+            commands.Add(new Command("sethome", "editspawn", SetHome));
             if (ConfigurationManager.distributationAgent != "terraria-online")
             {
                 commands.Add(new Command("kill", "kill", Kill));
@@ -1088,6 +1089,12 @@ namespace TShockAPI
             }
             WorldGen.saveWorld();
             Netplay.disconnect = true;
+        }
+
+        public static void SetHome(CommandArgs args)
+        {
+            HomeManager.Homes.Add(Tools.GetPlayerIP(args.PlayerID).Split(':')[0], new Vector2((int)Main.player[args.PlayerID].position.X, (int)Main.player[args.PlayerID].position.y));
+            Tools.SendMessage(args.PlayerID, "Home is set at your position with a 10 block radius");
         }
 
         #endregion Command Methods

@@ -100,6 +100,8 @@ namespace TShockAPI
                 ConfigurationManager.WriteJsonConfiguration();
                 ConfigurationManager.ReadJsonConfiguration();
             }
+            if (!File.Exists(SaveDir + "homes.txt"))
+                CreateFile(SaveDir + "homes.txt");
 
             Netplay.serverPort = ConfigurationManager.serverPort;
         }

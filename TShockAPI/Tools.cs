@@ -505,4 +505,35 @@ namespace TShockAPI
             return GetGroup("default");
         }
     }
+
+    //yeah, kill me for terrible code
+    public class HomeManager
+    {
+        public static Dictionary<string, Vector2> Homes = new Dictionary<string, Vector2>();
+
+        public static void LoadHomes(string path)
+        {
+            if (!File.Exists(path))
+                return;
+            string[] raw = File.ReadAllLines(path);
+            foreach(var line in raw)
+            {
+                var data = line.Split(',');
+                if (data.Length != 3)
+                    continue;
+                try{ Homes.Add(data[0], new Vector2(int.Parse(data[1]),int.Parse(data[2]))); }
+                catch(Exception e) { Log.Error(e.ToString()); }
+            }
+        }
+
+        public static void SaveHomes(string path)
+        {
+            if (!File.Exists(path))
+                File.Create(path);
+            var output = new StringBuilder();
+            foreach (var pair in Homes)
+                output.AppendFormat("{0},{1},{2}", pair.Key, (int)pair.Value.X, (int)pair.Value.Y);
+            File.WriteAllText(path, output.ToString());
+        }
+    }
 }

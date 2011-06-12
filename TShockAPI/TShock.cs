@@ -347,10 +347,10 @@ namespace TShockAPI
                 {
                     if (!players[e.Msg.whoAmI].group.HasPermission("editspawn"))
                     {
-                        var flag = CheckSpawn(x, y);
+                        var flag = CheckTileProtection(x, y);
                         if (flag)
                         {
-                            Tools.SendMessage(e.Msg.whoAmI, "Spawn protected from changes.", Color.Red);
+                            Tools.SendMessage(e.Msg.whoAmI, "Area protected from changes.", Color.Red);
                             return true;
                         }
                     }
@@ -525,7 +525,7 @@ namespace TShockAPI
             {
                 if (!players[e.Msg.whoAmI].group.HasPermission("editspawn"))
                 {
-                    var flag = CheckSpawn(x, y);
+                    var flag = CheckTileProtection(x, y);
                     if (flag)
                     {
                         Tools.SendMessage(e.Msg.whoAmI, "The spawn is protected!", Color.Red);
@@ -852,15 +852,22 @@ namespace TShockAPI
             return -1;
         }
 
-        public static bool CheckSpawn(int x, int y)
+        public static bool CheckTileProtection(int x, int y)
         {
             Vector2 tile = new Vector2(x, y);
+            //Spawn check
             Vector2 spawn = new Vector2(Main.spawnTileX, Main.spawnTileY);
             var distance = Vector2.Distance(spawn, tile);
-            if (distance > ConfigurationManager.spawnProtectRadius)
-                return false;
-            else
+            if (distance < ConfigurationManager.spawnProtectRadius)
                 return true;
+            //this is gonna lag the server with many homes, I think.
+            foreach (var pair in HomeManager.Homes)
+            {
+                distance = Vector2.Distance(pair.Value, tile);
+                if (distance < ConfigurationManager.HomeRadius)
+                    return true;
+            }
+            return false;
         }
 
         public class Position

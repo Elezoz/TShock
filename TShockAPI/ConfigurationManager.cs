@@ -52,6 +52,7 @@ namespace TShockAPI
         public static int maxSlots = 8;
         public static bool spamChecks = false;
         public static bool disableBuild = false;
+        public static int HomeRadius = 10;
 
         public enum NPCList
         {
@@ -90,6 +91,7 @@ namespace TShockAPI
             disableBuild = cfg.DisableBuild;
             NPC.maxSpawns = defaultMaxSpawns;
             NPC.defaultSpawnRate = defaultSpawnRate;
+            HomeRadius = cfg.HomeRadius;
         }
 
         public static void WriteJsonConfiguration()
@@ -121,6 +123,7 @@ namespace TShockAPI
             cfg.RangeChecks = rangeChecks;
             cfg.SpamChecks = spamChecks;
             cfg.DisableBuild = disableBuild;
+            cfg.HomeRadius = HomeRadius;
             string json = JsonConvert.SerializeObject(cfg, Formatting.Indented);
             TextWriter tr = new StreamWriter(FileTools.SaveDir + "config.json");
             tr.Write(json);

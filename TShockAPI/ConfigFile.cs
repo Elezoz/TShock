@@ -41,5 +41,6 @@ namespace TShockAPI
         public bool RangeChecks = true;
         public bool SpamChecks = false;
         public bool DisableBuild = false;
+        public int HomeRadius = 10;
     }
 }
